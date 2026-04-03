@@ -15,6 +15,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("Login tenté →", API_URL);
     setLoading(true);
     setError("");
 
