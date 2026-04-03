@@ -1,6 +1,6 @@
 import { getToken, removeToken } from "./auth";
 
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const authHeaders = (json = true): Record<string, string> => {
   const h: Record<string, string> = {};
