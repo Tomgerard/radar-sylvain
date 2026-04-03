@@ -2,6 +2,9 @@ import os
 from datetime import datetime
 from models import Devis
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PDF_DIR = os.path.join(BASE_DIR, "pdfs")
+
 MENTIONS_GUSO = """Contrat GUSO intermittent du spectacle. Merci de vous renseigner sur www.guso.fr pour faire les démarches. Pour le GUSO merci de me l'envoyer avant validation. Les informations pour le GUSO et le descriptif de la prestation ont été envoyés par mail."""
 
 CLAUSE_ANNULATION = """En cas de maladie, d'accident ou de tout autre empêchement indépendant de la volonté de l'artiste rendant impossible l'exécution de la prestation prévue, la responsabilité de l'artiste ne pourra en aucun cas être engagée."""
@@ -95,8 +98,8 @@ def generer_html_devis(devis: Devis) -> str:
 
 async def generer_pdf(devis: Devis) -> str:
     from weasyprint import HTML
-    os.makedirs("pdfs", exist_ok=True)
+    os.makedirs(PDF_DIR, exist_ok=True)
     html_content = generer_html_devis(devis)
-    pdf_path = f"pdfs/devis_{devis.numero}.pdf"
+    pdf_path = os.path.join(PDF_DIR, f"devis_{devis.numero}.pdf")
     HTML(string=html_content).write_pdf(pdf_path)
     return pdf_path
