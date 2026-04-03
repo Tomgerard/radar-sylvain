@@ -38,7 +38,7 @@ export default function LoginPage() {
 
       const { access_token } = await res.json();
       setToken(access_token);
-      router.push("/devis");
+      window.location.href = "/devis";
     } catch {
       setError("Impossible de contacter le serveur.");
     } finally {
