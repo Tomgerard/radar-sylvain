@@ -14,7 +14,7 @@ class Devis(Base):
     adresse_client = Column(Text)
     
     # Prestation
-    type_prestation = Column(String, nullable=False)
+    type_prestation = Column(String, nullable=True)
     description = Column(Text)
     nom_evenement = Column(String)
     date_evenement = Column(String)
@@ -22,7 +22,17 @@ class Devis(Base):
     horaires = Column(String, default="À définir")
     prix_ttc = Column(Float, nullable=False)  # total TTC (= somme des lignes)
     lignes_prestations = Column(Text, nullable=True)  # JSON [{ "libelle", "prix_ttc" }, ...]
-    
+
+    # Informations légales client
+    raison_sociale = Column(String, nullable=True)
+    siret = Column(String, nullable=True)
+    numero_tva = Column(String, nullable=True)
+    representant_legal = Column(String, nullable=True)
+    telephone_client = Column(String, nullable=True)
+    email_client = Column(String, nullable=True)
+    code_postal_client = Column(String, nullable=True)
+    ville_client = Column(String, nullable=True)
+
     # Statut
     statut = Column(String, default="brouillon")  # brouillon / envoyé
     pdf_path = Column(String, nullable=True)

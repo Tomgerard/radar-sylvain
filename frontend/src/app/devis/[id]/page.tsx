@@ -41,7 +41,7 @@ export default function DevisDetailPage() {
       setForm({
         nom_client: d.nom_client,
         adresse_client: d.adresse_client,
-        type_prestation: d.type_prestation,
+        type_prestation: d.type_prestation || "",
         description: d.description,
         nom_evenement: d.nom_evenement,
         date_evenement: d.date_evenement,
@@ -51,6 +51,14 @@ export default function DevisDetailPage() {
           d.lignes_prestations?.length
             ? d.lignes_prestations.map((l) => ({ ...l }))
             : [{ libelle: d.type_prestation || "Prestation", prix_ttc: d.prix_ttc }],
+        raison_sociale: d.raison_sociale || "",
+        siret: d.siret || "",
+        numero_tva: d.numero_tva || "",
+        representant_legal: d.representant_legal || "",
+        telephone_client: d.telephone_client || "",
+        email_client: d.email_client || "",
+        code_postal_client: d.code_postal_client || "",
+        ville_client: d.ville_client || "",
       });
       setLoading(false);
     }).catch(() => {
@@ -111,13 +119,21 @@ export default function DevisDetailPage() {
       setForm({
         nom_client: updated.nom_client,
         adresse_client: updated.adresse_client,
-        type_prestation: updated.type_prestation,
+        type_prestation: updated.type_prestation || "",
         description: updated.description,
         nom_evenement: updated.nom_evenement,
         date_evenement: updated.date_evenement,
         duree: updated.duree,
         horaires: updated.horaires,
         lignes_prestations: updated.lignes_prestations.map((l) => ({ ...l })),
+        raison_sociale: updated.raison_sociale || "",
+        siret: updated.siret || "",
+        numero_tva: updated.numero_tva || "",
+        representant_legal: updated.representant_legal || "",
+        telephone_client: updated.telephone_client || "",
+        email_client: updated.email_client || "",
+        code_postal_client: updated.code_postal_client || "",
+        ville_client: updated.ville_client || "",
       });
       setMessage("Devis mis à jour !");
       setTimeout(() => setMessage(""), 3000);
@@ -214,6 +230,20 @@ export default function DevisDetailPage() {
             </div>
           </BentoCard>
 
+          <BentoCard title="Informations légales client">
+            <p className="text-xs text-muted mb-4">Ces informations apparaîtront sur le devis PDF. Tous les champs sont optionnels.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className={labelClass}>Raison sociale</label><input name="raison_sociale" value={form.raison_sociale || ""} onChange={handleChange} placeholder="SAS Exemple" className={inputClass} /></div>
+              <div><label className={labelClass}>SIRET</label><input name="siret" value={form.siret || ""} onChange={handleChange} placeholder="000 000 000 00000" className={inputClass} /></div>
+              <div><label className={labelClass}>N° TVA</label><input name="numero_tva" value={form.numero_tva || ""} onChange={handleChange} placeholder="FR00000000000" className={inputClass} /></div>
+              <div><label className={labelClass}>Représentant légal</label><input name="representant_legal" value={form.representant_legal || ""} onChange={handleChange} placeholder="Prénom Nom" className={inputClass} /></div>
+              <div><label className={labelClass}>Téléphone client</label><input name="telephone_client" value={form.telephone_client || ""} onChange={handleChange} placeholder="06 00 00 00 00" className={inputClass} /></div>
+              <div><label className={labelClass}>Email client</label><input name="email_client" type="email" value={form.email_client || ""} onChange={handleChange} placeholder="contact@client.fr" className={inputClass} /></div>
+              <div><label className={labelClass}>Code postal</label><input name="code_postal_client" value={form.code_postal_client || ""} onChange={handleChange} placeholder="73700" className={inputClass} /></div>
+              <div><label className={labelClass}>Ville</label><input name="ville_client" value={form.ville_client || ""} onChange={handleChange} placeholder="Bourg-Saint-Maurice" className={inputClass} /></div>
+            </div>
+          </BentoCard>
+
           <BentoCard title="Prestation">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -222,7 +252,8 @@ export default function DevisDetailPage() {
               </div>
               <div>
                 <label className={labelClass}>Type de prestation</label>
-                <select name="type_prestation" value={form.type_prestation} onChange={handleChange} className={inputClass}>
+                <select name="type_prestation" value={form.type_prestation || ""} onChange={handleChange} className={inputClass}>
+                  <option value="">-- Non défini --</option>
                   {TYPES_PRESTATION.map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}

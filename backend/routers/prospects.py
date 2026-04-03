@@ -19,6 +19,18 @@ class StatutUpdate(BaseModel):
 class NoteUpdate(BaseModel):
     note: str
 
+class ProspectCreate(BaseModel):
+    nom: str
+    type_structure: Optional[str] = "autre"
+    adresse: Optional[str] = ""
+    ville: Optional[str] = ""
+    departement: Optional[str] = ""
+    telephone: Optional[str] = ""
+    email: Optional[str] = ""
+    site_web: Optional[str] = ""
+    statut: Optional[str] = "a_contacter"
+    note: Optional[str] = ""
+    description_structure: Optional[str] = ""
 
 class BulkProspectAction(BaseModel):
     ids: list[int] = Field(default_factory=list)
@@ -52,6 +64,33 @@ async def list_prospects(
         prospects = [p for p in prospects if p.departement == departement]
 
     return prospects
+
+
+# ─── Création manuelle ───────────────────────────────────────────
+
+@router.post("/")
+async def create_prospect(data: ProspectCreate, db: AsyncSession = Depends(get_db)):
+    prospect = Prospect(
+        nom=data.nom,
+        type_structure=data.type_structure,
+        adresse=data.adresse,
+        ville=data.ville,
+        departement=data.departement,
+        telephone=data.telephone,
+        email=data.email,
+        site_web=data.site_web,
+        statut=data.statut,
+        note=data.note,
+        description_structure=data.description_structure,
+        source="manuel",
+        score_prospection=0,
+        site_web_scrape=0,
+        email_trouve=1 if data.email else 0,
+    )
+    db.add(prospect)
+    await db.commit()
+    await db.refresh(prospect)
+    return prospect
 
 
 # ─── Actions groupées (avant /{prospect_id}) ─────────────────────

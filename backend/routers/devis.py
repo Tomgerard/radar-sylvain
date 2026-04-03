@@ -22,14 +22,23 @@ class LignePrestationIn(BaseModel):
 
 class DevisCreate(BaseModel):
     nom_client: str
-    adresse_client: str
-    type_prestation: str
-    description: str
-    nom_evenement: str
-    date_evenement: str
-    duree: str
-    horaires: str = "À définir"
+    adresse_client: Optional[str] = ""
+    type_prestation: Optional[str] = None
+    description: Optional[str] = ""
+    nom_evenement: Optional[str] = ""
+    date_evenement: Optional[str] = ""
+    duree: Optional[str] = ""
+    horaires: Optional[str] = "À définir"
     lignes_prestations: list[LignePrestationIn] = Field(min_length=1)
+    # Informations légales client
+    raison_sociale: Optional[str] = None
+    siret: Optional[str] = None
+    numero_tva: Optional[str] = None
+    representant_legal: Optional[str] = None
+    telephone_client: Optional[str] = None
+    email_client: Optional[str] = None
+    code_postal_client: Optional[str] = None
+    ville_client: Optional[str] = None
 
 
 class DevisUpdate(DevisCreate):
@@ -90,6 +99,14 @@ def _dump_devis(devis: Devis) -> dict[str, Any]:
         "lignes_prestations": lignes,
         "statut": devis.statut,
         "pdf_path": devis.pdf_path,
+        "raison_sociale": devis.raison_sociale,
+        "siret": devis.siret,
+        "numero_tva": devis.numero_tva,
+        "representant_legal": devis.representant_legal,
+        "telephone_client": devis.telephone_client,
+        "email_client": devis.email_client,
+        "code_postal_client": devis.code_postal_client,
+        "ville_client": devis.ville_client,
         "created_at": devis.created_at.isoformat() if devis.created_at else None,
         "updated_at": devis.updated_at.isoformat() if devis.updated_at else None,
     }
@@ -129,6 +146,25 @@ async def create_devis(data: DevisCreate, db: AsyncSession = Depends(get_db)):
     db.add(devis)
     await db.commit()
     await db.refresh(devis)
+
+    # Créer automatiquement un prospect si pas existant
+    from models import Prospect
+    existing_p = await db.execute(select(Prospect).where(Prospect.nom == data.nom_client))
+    if not existing_p.scalar_one_or_none():
+        nouveau_prospect = Prospect(
+            nom=data.nom_client,
+            adresse=data.adresse_client or "",
+            ville=data.ville_client or "",
+            email=data.email_client or "",
+            telephone=data.telephone_client or "",
+            type_structure="autre",
+            statut="contacte",
+            source="devis",
+            note=f"Client ajouté automatiquement depuis devis N°{devis.numero}",
+        )
+        db.add(nouveau_prospect)
+        await db.commit()
+
     return _dump_devis(devis)
 
 @router.put("/{devis_id}")

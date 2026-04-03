@@ -1,4 +1,29 @@
+import { getToken, removeToken } from "./auth";
+
 const BASE_URL = "http://localhost:8000";
+
+const authHeaders = (json = true): Record<string, string> => {
+  const h: Record<string, string> = {};
+  if (json) h["Content-Type"] = "application/json";
+  const token = getToken();
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  return h;
+};
+
+const handleResponse = async (res: Response) => {
+  if (res.status === 401) {
+    removeToken();
+    window.location.href = "/login";
+    throw new Error("Session expirée");
+  }
+  if (!res.ok) throw new Error("Erreur API");
+  return res.json();
+};
+
+export const logout = (): void => {
+  removeToken();
+  window.location.href = "/login";
+};
 
 export interface LignePrestation {
   libelle: string;
@@ -11,7 +36,7 @@ export interface Devis {
   date_devis: string;
   nom_client: string;
   adresse_client: string;
-  type_prestation: string;
+  type_prestation: string | null;
   description: string;
   nom_evenement: string;
   date_evenement: string;
@@ -21,20 +46,37 @@ export interface Devis {
   lignes_prestations: LignePrestation[];
   statut: string;
   pdf_path: string | null;
+  raison_sociale?: string | null;
+  siret?: string | null;
+  numero_tva?: string | null;
+  representant_legal?: string | null;
+  telephone_client?: string | null;
+  email_client?: string | null;
+  code_postal_client?: string | null;
+  ville_client?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface DevisCreate {
   nom_client: string;
-  adresse_client: string;
-  type_prestation: string;
-  description: string;
-  nom_evenement: string;
-  date_evenement: string;
-  duree: string;
-  horaires: string;
+  adresse_client?: string;
+  type_prestation?: string;
+  description?: string;
+  nom_evenement?: string;
+  date_evenement?: string;
+  duree?: string;
+  horaires?: string;
   lignes_prestations: LignePrestation[];
+  // Informations légales client
+  raison_sociale?: string;
+  siret?: string;
+  numero_tva?: string;
+  representant_legal?: string;
+  telephone_client?: string;
+  email_client?: string;
+  code_postal_client?: string;
+  ville_client?: string;
 }
 
 export interface Prospect {
@@ -95,53 +137,47 @@ export interface Opportunite {
 }
 
 export const api = {
-  getDevis: async (): Promise<Devis[]> => {
-    const res = await fetch(`${BASE_URL}/devis`);
-    if (!res.ok) throw new Error("Erreur API");
-    return res.json();
-  },
+  // ── Devis ──
 
-  createDevis: async (data: DevisCreate): Promise<Devis> => {
-    const res = await fetch(`${BASE_URL}/devis`, {
+  getDevis: async (): Promise<Devis[]> =>
+    fetch(`${BASE_URL}/devis`, { headers: authHeaders(false) }).then(handleResponse),
+
+  createDevis: async (data: DevisCreate): Promise<Devis> =>
+    fetch(`${BASE_URL}/devis`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error("Erreur API");
-    return res.json();
-  },
+    }).then(handleResponse),
 
   deleteDevis: async (id: number): Promise<void> => {
-    const res = await fetch(`${BASE_URL}/devis/${id}`, { method: "DELETE" });
+    const res = await fetch(`${BASE_URL}/devis/${id}`, { method: "DELETE", headers: authHeaders(false) });
+    if (res.status === 401) { removeToken(); window.location.href = "/login"; }
     if (!res.ok) throw new Error("Erreur API");
   },
 
-  getDevisById: async (id: number): Promise<Devis> => {
-    const res = await fetch(`${BASE_URL}/devis/${id}`);
-    if (!res.ok) throw new Error("Devis introuvable");
-    return res.json();
-  },
+  getDevisById: async (id: number): Promise<Devis> =>
+    fetch(`${BASE_URL}/devis/${id}`, { headers: authHeaders(false) }).then(handleResponse),
 
-  updateDevis: async (id: number, data: DevisCreate): Promise<Devis> => {
-    const res = await fetch(`${BASE_URL}/devis/${id}`, {
+  updateDevis: async (id: number, data: DevisCreate): Promise<Devis> =>
+    fetch(`${BASE_URL}/devis/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error("Erreur API");
-    return res.json();
-  },
+    }).then(handleResponse),
 
   envoyerDevis: async (id: number, destinataire: string): Promise<void> => {
     const res = await fetch(`${BASE_URL}/devis/${id}/envoyer`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ destinataire }),
     });
     if (!res.ok) throw new Error("Erreur envoi email");
   },
 
-  getPdfUrl: (id: number): string => `${BASE_URL}/devis/${id}/pdf`,
+  getPdfUrl: (id: number): string => {
+    const token = getToken();
+    return `${BASE_URL}/devis/${id}/pdf${token ? `?token=${token}` : ""}`;
+  },
 
   // ── Opportunités ──
 
@@ -149,35 +185,34 @@ export const api = {
     const params = new URLSearchParams();
     if (filters?.archives === true) params.set("archives", "true");
     const qs = params.toString();
-    const res = await fetch(
-      qs ? `${BASE_URL}/opportunites/?${qs}` : `${BASE_URL}/opportunites/`
-    );
-    if (!res.ok) throw new Error("Erreur API");
-    return res.json();
+    return fetch(
+      qs ? `${BASE_URL}/opportunites/?${qs}` : `${BASE_URL}/opportunites/`,
+      { headers: authHeaders(false) }
+    ).then(handleResponse);
   },
 
   bulkOpportunites: async (
     ids: number[],
     action: "archiver" | "desarchiver" | "supprimer"
-  ): Promise<{ ok: boolean; affectes: number }> => {
-    const res = await fetch(`${BASE_URL}/opportunites/bulk`, {
+  ): Promise<{ ok: boolean; affectes: number }> =>
+    fetch(`${BASE_URL}/opportunites/bulk`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ ids, action }),
-    });
-    if (!res.ok) throw new Error("Erreur action groupée");
-    return res.json();
-  },
+    }).then(handleResponse),
 
   marquerVue: async (id: number): Promise<void> => {
-    const res = await fetch(`${BASE_URL}/opportunites/${id}/vue`, { method: "PUT" });
+    const res = await fetch(`${BASE_URL}/opportunites/${id}/vue`, { method: "PUT", headers: authHeaders(false) });
     if (!res.ok) throw new Error("Erreur API");
   },
 
   deleteOpportunite: async (id: number): Promise<void> => {
-    const res = await fetch(`${BASE_URL}/opportunites/${id}`, { method: "DELETE" });
+    const res = await fetch(`${BASE_URL}/opportunites/${id}`, { method: "DELETE", headers: authHeaders(false) });
     if (!res.ok) throw new Error("Erreur API");
   },
+
+  lancerScraper: async (): Promise<{ message: string }> =>
+    fetch(`${BASE_URL}/opportunites/scraper/lancer`, { method: "POST", headers: authHeaders(false) }).then(handleResponse),
 
   // ── Prospects ──
 
@@ -193,78 +228,79 @@ export const api = {
     if (filters?.departement) params.set("departement", filters.departement);
     if (filters?.archives === true) params.set("archives", "true");
     const qs = params.toString();
-    const res = await fetch(qs ? `${BASE_URL}/prospects/?${qs}` : `${BASE_URL}/prospects/`);
-    if (!res.ok) throw new Error("Erreur API");
-    return res.json();
+    return fetch(
+      qs ? `${BASE_URL}/prospects/?${qs}` : `${BASE_URL}/prospects/`,
+      { headers: authHeaders(false) }
+    ).then(handleResponse);
   },
 
   bulkProspects: async (
     ids: number[],
     action: "archiver" | "desarchiver" | "supprimer"
-  ): Promise<{ ok: boolean; affectes: number }> => {
-    const res = await fetch(`${BASE_URL}/prospects/bulk`, {
+  ): Promise<{ ok: boolean; affectes: number }> =>
+    fetch(`${BASE_URL}/prospects/bulk`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ ids, action }),
-    });
-    if (!res.ok) throw new Error("Erreur action groupée");
-    return res.json();
-  },
+    }).then(handleResponse),
 
   updateStatutProspect: async (id: number, statut: string): Promise<void> => {
     const res = await fetch(`${BASE_URL}/prospects/${id}/statut`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ statut }),
     });
     if (!res.ok) throw new Error("Erreur API");
   },
 
   deleteProspect: async (id: number): Promise<void> => {
-    const res = await fetch(`${BASE_URL}/prospects/${id}`, { method: "DELETE" });
+    const res = await fetch(`${BASE_URL}/prospects/${id}`, { method: "DELETE", headers: authHeaders(false) });
     if (!res.ok) throw new Error("Erreur API");
   },
 
-  lancerScraperProspects: async (): Promise<{ total: number; nouveaux: number; emails_trouves: number; responsables_trouves: number }> => {
-    const res = await fetch(`${BASE_URL}/prospects/scraper/lancer`, { method: "POST" });
-    if (!res.ok) throw new Error("Erreur scraper");
-    return res.json();
-  },
+  createProspect: async (data: {
+    nom: string; type_structure?: string; adresse?: string; ville?: string;
+    departement?: string; telephone?: string; email?: string; site_web?: string;
+    statut?: string; note?: string; description_structure?: string;
+  }): Promise<Prospect> =>
+    fetch(`${BASE_URL}/prospects/`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    }).then(handleResponse),
 
-  enrichirProspect: async (id: number): Promise<Prospect> => {
-    const res = await fetch(`${BASE_URL}/prospects/${id}/enrichir`, { method: "POST" });
-    if (!res.ok) throw new Error("Erreur enrichissement");
-    return res.json();
-  },
+  lancerScraperProspects: async (): Promise<{ total: number; nouveaux: number; emails_trouves: number; responsables_trouves: number }> =>
+    fetch(`${BASE_URL}/prospects/scraper/lancer`, { method: "POST", headers: authHeaders(false) }).then(handleResponse),
 
-  genererEmailProspect: async (id: number): Promise<{ email: string }> => {
-    const res = await fetch(`${BASE_URL}/prospects/${id}/generer-email`, { method: "POST" });
-    if (!res.ok) throw new Error("Erreur génération email");
-    return res.json();
-  },
+  enrichirProspect: async (id: number): Promise<Prospect> =>
+    fetch(`${BASE_URL}/prospects/${id}/enrichir`, { method: "POST", headers: authHeaders(false) }).then(handleResponse),
+
+  genererEmailProspect: async (id: number): Promise<{ email: string }> =>
+    fetch(`${BASE_URL}/prospects/${id}/generer-email`, { method: "POST", headers: authHeaders(false) }).then(handleResponse),
 
   updateNoteProspect: async (id: number, note: string): Promise<void> => {
     const res = await fetch(`${BASE_URL}/prospects/${id}/note`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ note }),
     });
     if (!res.ok) throw new Error("Erreur API");
   },
 
-  exportCsvProspects: (): string => `${BASE_URL}/prospects/export/csv`,
+  exportCsvProspects: async (): Promise<void> => {
+    const res = await fetch(`${BASE_URL}/prospects/export/csv`, { headers: authHeaders(false) });
+    if (!res.ok) throw new Error("Erreur export");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "prospects.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   // ── Historique scraping ──
 
-  getHistoriqueScraping: async (): Promise<ScrapingSession[]> => {
-    const res = await fetch(`${BASE_URL}/scraping/historique`);
-    if (!res.ok) throw new Error("Erreur API");
-    return res.json();
-  },
-
-  lancerScraper: async (): Promise<{ message: string }> => {
-    const res = await fetch(`${BASE_URL}/opportunites/scraper/lancer`, { method: "POST" });
-    if (!res.ok) throw new Error("Erreur scraper");
-    return res.json();
-  },
+  getHistoriqueScraping: async (): Promise<ScrapingSession[]> =>
+    fetch(`${BASE_URL}/scraping/historique`, { headers: authHeaders(false) }).then(handleResponse),
 };

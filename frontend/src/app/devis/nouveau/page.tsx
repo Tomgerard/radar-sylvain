@@ -22,13 +22,21 @@ const TYPES_PRESTATION = [
 const defaultForm: DevisCreate = {
   nom_client: "",
   adresse_client: "",
-  type_prestation: "Magie",
+  type_prestation: "",
   description: "",
   nom_evenement: "",
   date_evenement: "",
   duree: "",
   horaires: "À définir",
   lignes_prestations: [{ libelle: "", prix_ttc: 0 }],
+  raison_sociale: "",
+  siret: "",
+  numero_tva: "",
+  representant_legal: "",
+  telephone_client: "",
+  email_client: "",
+  code_postal_client: "",
+  ville_client: "",
 };
 
 export default function NouveauDevisPage() {
@@ -140,6 +148,45 @@ export default function NouveauDevisPage() {
             </div>
           </BentoCard>
 
+          {/* Informations légales client */}
+          <BentoCard title="Informations légales client">
+            <p className="text-xs text-muted mb-4">Ces informations apparaîtront sur le devis PDF. Tous les champs sont optionnels.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Raison sociale</label>
+                <input name="raison_sociale" value={form.raison_sociale || ""} onChange={handleChange} placeholder="SAS Exemple" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>SIRET</label>
+                <input name="siret" value={form.siret || ""} onChange={handleChange} placeholder="000 000 000 00000" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>N° TVA intracommunautaire</label>
+                <input name="numero_tva" value={form.numero_tva || ""} onChange={handleChange} placeholder="FR00000000000" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Représentant légal</label>
+                <input name="representant_legal" value={form.representant_legal || ""} onChange={handleChange} placeholder="Prénom Nom" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Téléphone client</label>
+                <input name="telephone_client" value={form.telephone_client || ""} onChange={handleChange} placeholder="06 00 00 00 00" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Email client</label>
+                <input name="email_client" type="email" value={form.email_client || ""} onChange={handleChange} placeholder="contact@client.fr" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Code postal</label>
+                <input name="code_postal_client" value={form.code_postal_client || ""} onChange={handleChange} placeholder="73700" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Ville</label>
+                <input name="ville_client" value={form.ville_client || ""} onChange={handleChange} placeholder="Bourg-Saint-Maurice" className={inputClass} />
+              </div>
+            </div>
+          </BentoCard>
+
           {/* Prestation */}
           <BentoCard title="Prestation">
             <div className="grid grid-cols-2 gap-4">
@@ -154,13 +201,14 @@ export default function NouveauDevisPage() {
                 />
               </div>
               <div>
-                <label className={labelClass}>Type de prestation *</label>
+                <label className={labelClass}>Type de prestation</label>
                 <select
                   name="type_prestation"
                   value={form.type_prestation}
                   onChange={handleChange}
                   className={inputClass}
                 >
+                  <option value="">-- Non défini --</option>
                   {TYPES_PRESTATION.map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}

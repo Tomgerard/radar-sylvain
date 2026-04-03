@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database import engine, Base
-from routers import devis, opportunites, prospects, scraping
+from routers import devis, opportunites, prospects, scraping, auth
+from auth import get_current_user
 
 async def migrate_sessions(conn):
     """Crée la table sessions_scraping si elle n'existe pas (SQLite)."""
@@ -44,12 +45,24 @@ async def migrate_prospects(conn):
 
 
 async def migrate_devis_lignes(conn):
-    """Ajoute lignes_prestations sur devis si absent (SQLite)."""
+    """Ajoute les colonnes manquantes sur devis (SQLite)."""
     from sqlalchemy import text
     result = await conn.execute(text("PRAGMA table_info(devis)"))
     existing = {row[1] for row in result.fetchall()}
-    if "lignes_prestations" not in existing:
-        await conn.execute(text("ALTER TABLE devis ADD COLUMN lignes_prestations TEXT"))
+    colonnes = {
+        "lignes_prestations": "TEXT",
+        "raison_sociale": "VARCHAR",
+        "siret": "VARCHAR",
+        "numero_tva": "VARCHAR",
+        "representant_legal": "VARCHAR",
+        "telephone_client": "VARCHAR",
+        "email_client": "VARCHAR",
+        "code_postal_client": "VARCHAR",
+        "ville_client": "VARCHAR",
+    }
+    for col, coltype in colonnes.items():
+        if col not in existing:
+            await conn.execute(text(f"ALTER TABLE devis ADD COLUMN {col} {coltype}"))
 
 
 async def migrate_opportunites(conn):
@@ -85,10 +98,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(devis.router, prefix="/devis", tags=["devis"])
-app.include_router(opportunites.router, prefix="/opportunites", tags=["opportunites"])
-app.include_router(prospects.router, prefix="/prospects", tags=["prospects"])
-app.include_router(scraping.router, prefix="/scraping", tags=["scraping"])
+protected = [Depends(get_current_user)]
+
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(devis.router, prefix="/devis", tags=["devis"], dependencies=protected)
+app.include_router(opportunites.router, prefix="/opportunites", tags=["opportunites"], dependencies=protected)
+app.include_router(prospects.router, prefix="/prospects", tags=["prospects"], dependencies=protected)
+app.include_router(scraping.router, prefix="/scraping", tags=["scraping"], dependencies=protected)
 
 @app.get("/")
 async def root():

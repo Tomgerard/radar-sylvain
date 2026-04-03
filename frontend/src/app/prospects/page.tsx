@@ -337,6 +337,8 @@ export default function ProspectsPage() {
   const [voirArchives, setVoirArchives] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [toast, setToast] = useState("");
   const selectAllRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -539,13 +541,18 @@ export default function ProspectsPage() {
           >
             {voirArchives ? "← Liste active" : "📦 Archives"}
           </button>
-          <a
-            href={api.exportCsvProspects()}
-            download="prospects.csv"
+          <button
+            onClick={() => api.exportCsvProspects().catch(() => alert("Erreur export"))}
             className="px-4 py-2 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
             ⬇️ Exporter CSV
-          </a>
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="px-5 py-2 rounded-full text-sm font-bold border-2 border-[#E63946] text-[#E63946] hover:bg-red-50 transition-colors"
+          >
+            + Ajouter un prospect
+          </button>
           <button
             onClick={handleScrape}
             disabled={scraping}
@@ -852,6 +859,149 @@ export default function ProspectsPage() {
           generatingEmail={generatingEmail === selected.id}
         />
       )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg">
+          {toast}
+        </div>
+      )}
+
+      {/* Modal ajout manuel */}
+      {showModal && (
+        <ModalAjoutProspect
+          onClose={() => setShowModal(false)}
+          onAdded={(p) => {
+            setProspects((prev) => [p, ...prev]);
+            setShowModal(false);
+            setToast("Prospect ajouté ✓");
+            setTimeout(() => setToast(""), 3000);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal ajout manuel ────────────────────────────────────────────────────────
+
+const TYPES_STRUCTURE = [
+  { value: "CE/CSE", label: "CE / CSE" },
+  { value: "mairie", label: "Mairie" },
+  { value: "ecole", label: "École" },
+  { value: "restaurant", label: "Restaurant / Hôtel" },
+  { value: "camping", label: "Camping" },
+  { value: "association", label: "Association" },
+  { value: "station_ski", label: "Station ski" },
+  { value: "autre", label: "Autre" },
+];
+
+const DEPTS = [
+  { value: "73", label: "73 — Savoie" },
+  { value: "74", label: "74 — Haute-Savoie" },
+  { value: "01", label: "01 — Ain" },
+  { value: "38", label: "38 — Isère" },
+  { value: "69", label: "69 — Rhône" },
+  { value: "suisse", label: "Suisse" },
+];
+
+function ModalAjoutProspect({ onClose, onAdded }: { onClose: () => void; onAdded: (p: Prospect) => void }) {
+  const [form, setForm] = useState({
+    nom: "", type_structure: "autre", adresse: "", ville: "", departement: "73",
+    telephone: "", email: "", site_web: "", statut: "a_contacter",
+    note: "", description_structure: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [erreur, setErreur] = useState("");
+
+  const inp = "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400";
+  const lbl = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1";
+
+  const handleSubmit = async () => {
+    if (!form.nom.trim() || !form.ville.trim()) { setErreur("Le nom et la ville sont obligatoires."); return; }
+    setSaving(true); setErreur("");
+    try {
+      const p = await api.createProspect(form);
+      onAdded(p);
+    } catch { setErreur("Erreur lors de l'ajout."); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+          <h2 className="font-bold text-gray-900">Ajouter un prospect manuellement</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+        </div>
+        <div className="p-6 space-y-5">
+          {/* Identité */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Identité</p>
+            <div className="space-y-3">
+              <div>
+                <label className={lbl}>Nom / Raison sociale *</label>
+                <input className={inp} value={form.nom} onChange={e => setForm(f => ({...f, nom: e.target.value}))} placeholder="Mairie de Tignes" />
+              </div>
+              <div>
+                <label className={lbl}>Type de structure</label>
+                <select className={inp} value={form.type_structure} onChange={e => setForm(f => ({...f, type_structure: e.target.value}))}>
+                  {TYPES_STRUCTURE.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={lbl}>Description</label>
+                <textarea className={`${inp} resize-none`} rows={2} value={form.description_structure} onChange={e => setForm(f => ({...f, description_structure: e.target.value}))} placeholder="Optionnel..." />
+              </div>
+            </div>
+          </div>
+          {/* Localisation */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Localisation</p>
+            <div className="space-y-3">
+              <div><label className={lbl}>Adresse</label><input className={inp} value={form.adresse} onChange={e => setForm(f => ({...f, adresse: e.target.value}))} placeholder="1 rue de la Mairie" /></div>
+              <div><label className={lbl}>Ville *</label><input className={inp} value={form.ville} onChange={e => setForm(f => ({...f, ville: e.target.value}))} placeholder="Tignes" /></div>
+              <div>
+                <label className={lbl}>Département</label>
+                <select className={inp} value={form.departement} onChange={e => setForm(f => ({...f, departement: e.target.value}))}>
+                  {DEPTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+          {/* Contact */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Contact</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className={lbl}>Téléphone</label><input className={inp} value={form.telephone} onChange={e => setForm(f => ({...f, telephone: e.target.value}))} placeholder="04 79 00 00 00" /></div>
+              <div><label className={lbl}>Email</label><input className={inp} type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} placeholder="contact@..." /></div>
+              <div className="col-span-2"><label className={lbl}>Site web</label><input className={inp} value={form.site_web} onChange={e => setForm(f => ({...f, site_web: e.target.value}))} placeholder="https://..." /></div>
+            </div>
+          </div>
+          {/* Prospection */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Prospection</p>
+            <div className="space-y-3">
+              <div>
+                <label className={lbl}>Statut initial</label>
+                <select className={inp} value={form.statut} onChange={e => setForm(f => ({...f, statut: e.target.value}))}>
+                  <option value="a_contacter">À contacter</option>
+                  <option value="contacte">Contacté</option>
+                  <option value="en_attente">En attente</option>
+                </select>
+              </div>
+              <div><label className={lbl}>Notes</label><textarea className={`${inp} resize-none`} rows={2} value={form.note} onChange={e => setForm(f => ({...f, note: e.target.value}))} placeholder="Optionnel..." /></div>
+            </div>
+          </div>
+          {erreur && <p className="text-sm text-red-600 font-medium">{erreur}</p>}
+        </div>
+        <div className="px-6 pb-6 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-full border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">Annuler</button>
+          <button onClick={handleSubmit} disabled={saving} className="flex-1 py-2.5 rounded-full bg-[#E63946] text-white text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-60">
+            {saving ? "Ajout..." : "Ajouter"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

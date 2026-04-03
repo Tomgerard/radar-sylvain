@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { logout } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/devis", label: "Mes Devis", icon: "\uD83D\uDCC4" },
@@ -44,10 +45,16 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* User info */}
+      {/* User info + logout */}
       <div className="px-6 py-6 border-t border-white/10">
         <p className="text-white text-sm font-semibold">Sylvain Gérard</p>
-        <p className="text-white/40 text-xs">Artiste de spectacle</p>
+        <p className="text-white/40 text-xs mb-4">Artiste de spectacle</p>
+        <button
+          onClick={logout}
+          className="flex items-center gap-2 text-xs text-white/30 hover:text-[#E63946] transition-colors"
+        >
+          🚪 Déconnexion
+        </button>
       </div>
     </aside>
   );
