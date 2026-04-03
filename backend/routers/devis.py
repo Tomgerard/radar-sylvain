@@ -1,9 +1,10 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Any
 from datetime import datetime
 from database import get_db
 from models import Devis
@@ -14,6 +15,11 @@ router = APIRouter()
 
 # ─── Schémas Pydantic ───────────────────────────────────────────
 
+class LignePrestationIn(BaseModel):
+    libelle: str
+    prix_ttc: float = Field(ge=0)
+
+
 class DevisCreate(BaseModel):
     nom_client: str
     adresse_client: str
@@ -23,7 +29,8 @@ class DevisCreate(BaseModel):
     date_evenement: str
     duree: str
     horaires: str = "À définir"
-    prix_ttc: float
+    lignes_prestations: list[LignePrestationIn] = Field(min_length=1)
+
 
 class DevisUpdate(DevisCreate):
     pass
@@ -36,12 +43,64 @@ class EmailRequest(BaseModel):
 def generer_numero(date: datetime, increment: int) -> str:
     return f"{date.strftime('%Y%m%d')}{increment:03d}"
 
+
+def _normaliser_lignes(data: DevisCreate) -> tuple[str, float]:
+    lignes: list[dict[str, Any]] = []
+    for l in data.lignes_prestations:
+        lib = (l.libelle or "").strip()
+        if not lib:
+            continue
+        lignes.append({"libelle": lib, "prix_ttc": float(l.prix_ttc)})
+    if not lignes:
+        raise HTTPException(status_code=400, detail="Au moins une ligne de prestation avec un libellé")
+    total = sum(x["prix_ttc"] for x in lignes)
+    return json.dumps(lignes, ensure_ascii=False), total
+
+
+def _dump_devis(devis: Devis) -> dict[str, Any]:
+    lignes: list[dict] = []
+    raw = getattr(devis, "lignes_prestations", None)
+    if raw:
+        try:
+            lignes = json.loads(raw)
+            if not isinstance(lignes, list):
+                lignes = []
+        except json.JSONDecodeError:
+            lignes = []
+    if not lignes:
+        lignes = [
+            {
+                "libelle": devis.type_prestation or "Prestation",
+                "prix_ttc": float(devis.prix_ttc or 0),
+            }
+        ]
+    return {
+        "id": devis.id,
+        "numero": devis.numero,
+        "date_devis": devis.date_devis.isoformat() if devis.date_devis else None,
+        "nom_client": devis.nom_client,
+        "adresse_client": devis.adresse_client,
+        "type_prestation": devis.type_prestation,
+        "description": devis.description,
+        "nom_evenement": devis.nom_evenement,
+        "date_evenement": devis.date_evenement,
+        "duree": devis.duree,
+        "horaires": devis.horaires,
+        "prix_ttc": float(devis.prix_ttc or 0),
+        "lignes_prestations": lignes,
+        "statut": devis.statut,
+        "pdf_path": devis.pdf_path,
+        "created_at": devis.created_at.isoformat() if devis.created_at else None,
+        "updated_at": devis.updated_at.isoformat() if devis.updated_at else None,
+    }
+
+
 # ─── Routes CRUD ────────────────────────────────────────────────
 
 @router.get("/")
 async def list_devis(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Devis).order_by(desc(Devis.created_at)))
-    return result.scalars().all()
+    return [_dump_devis(d) for d in result.scalars().all()]
 
 @router.get("/{devis_id}")
 async def get_devis(devis_id: int, db: AsyncSession = Depends(get_db)):
@@ -49,7 +108,7 @@ async def get_devis(devis_id: int, db: AsyncSession = Depends(get_db)):
     devis = result.scalar_one_or_none()
     if not devis:
         raise HTTPException(status_code=404, detail="Devis non trouvé")
-    return devis
+    return _dump_devis(devis)
 
 @router.post("/")
 async def create_devis(data: DevisCreate, db: AsyncSession = Depends(get_db)):
@@ -58,11 +117,19 @@ async def create_devis(data: DevisCreate, db: AsyncSession = Depends(get_db)):
     last = result.scalars().first()
     increment = (last.id + 1) if last else 1
     numero = generer_numero(now, increment)
-    devis = Devis(**data.dict(), numero=numero)
+    bulk_json, total = _normaliser_lignes(data)
+    payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    payload.pop("lignes_prestations", None)
+    devis = Devis(
+        **payload,
+        numero=numero,
+        prix_ttc=total,
+        lignes_prestations=bulk_json,
+    )
     db.add(devis)
     await db.commit()
     await db.refresh(devis)
-    return devis
+    return _dump_devis(devis)
 
 @router.put("/{devis_id}")
 async def update_devis(devis_id: int, data: DevisUpdate, db: AsyncSession = Depends(get_db)):
@@ -70,11 +137,16 @@ async def update_devis(devis_id: int, data: DevisUpdate, db: AsyncSession = Depe
     devis = result.scalar_one_or_none()
     if not devis:
         raise HTTPException(status_code=404, detail="Devis non trouvé")
-    for key, value in data.dict().items():
+    bulk_json, total = _normaliser_lignes(data)
+    payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    payload.pop("lignes_prestations", None)
+    for key, value in payload.items():
         setattr(devis, key, value)
+    devis.prix_ttc = total
+    devis.lignes_prestations = bulk_json
     await db.commit()
     await db.refresh(devis)
-    return devis
+    return _dump_devis(devis)
 
 @router.delete("/{devis_id}")
 async def delete_devis(devis_id: int, db: AsyncSession = Depends(get_db)):

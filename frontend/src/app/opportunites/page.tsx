@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api, Opportunite } from "@/lib/api";
 import StatCard from "@/components/ui/StatCard";
 import Button from "@/components/ui/Button";
+import HistoriqueScraping from "@/components/ui/HistoriqueScraping";
 
 // ── Badge styles par source ──
 const SOURCE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
@@ -11,6 +12,8 @@ const SOURCE_STYLES: Record<string, { bg: string; text: string; label: string }>
   evenement:    { bg: "bg-[#D1FAE5]", text: "text-[#065F46]", label: "Événement" },
   boamp:        { bg: "bg-[#DBEAFE]", text: "text-[#1E40AF]", label: "BOAMP" },
   facebook:     { bg: "bg-[#EDE9FE]", text: "text-[#5B21B6]", label: "Facebook" },
+  agence:       { bg: "bg-[#FCE7F3]", text: "text-[#9D174D]", label: "Agence" },
+  leboncoin:    { bg: "bg-[#FFF7ED]", text: "text-[#9A3412]", label: "Bon Coin" },
 };
 
 const SCORE_STYLES: Record<string, { bg: string; text: string }> = {
@@ -36,10 +39,24 @@ export default function OpportunitesPage() {
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState("");
   const [filter, setFilter] = useState("all");
+  const [histKey, setHistKey] = useState(0);
+  const [voirArchives, setVoirArchives] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    const data = await api.getOpportunites({ archives: voirArchives });
+    setOpps(data);
+  }, [voirArchives]);
 
   useEffect(() => {
-    api.getOpportunites().then(setOpps).finally(() => setLoading(false));
-  }, []);
+    load().finally(() => setLoading(false));
+  }, [load]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [voirArchives]);
 
   const handleScrape = async () => {
     setScraping(true);
@@ -47,8 +64,8 @@ export default function OpportunitesPage() {
     try {
       const res = await api.lancerScraper();
       setScrapeMsg(res.message);
-      const fresh = await api.getOpportunites();
-      setOpps(fresh);
+      await load();
+      setHistKey((k) => k + 1);
     } catch {
       setScrapeMsg("Erreur lors du scan.");
     } finally {
@@ -68,12 +85,79 @@ export default function OpportunitesPage() {
     setOpps((prev) => prev.filter((o) => o.id !== id));
   };
 
+  const toggleSelectOne = (id: number) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkArchiver = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkLoading(true);
+    try {
+      await api.bulkOpportunites(selectedIds, "archiver");
+      setSelectedIds([]);
+      await load();
+    } catch {
+      alert("Erreur lors de l'archivage.");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkRestaurer = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkLoading(true);
+    try {
+      await api.bulkOpportunites(selectedIds, "desarchiver");
+      setSelectedIds([]);
+      await load();
+    } catch {
+      alert("Erreur lors de la restauration.");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkSupprimer = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Supprimer définitivement ${selectedIds.length} opportunité(s) ? Cette action est irréversible.`)) return;
+    setBulkLoading(true);
+    try {
+      await api.bulkOpportunites(selectedIds, "supprimer");
+      setSelectedIds([]);
+      await load();
+    } catch {
+      alert("Erreur lors de la suppression.");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   // ── Filtrage ──
   const filtered = opps.filter((o) => {
     if (filter === "all") return true;
     if (["haute", "moyenne", "faible"].includes(filter)) return o.score === filter;
     return o.source === filter;
   });
+
+  const filteredIds = filtered.map((o) => o.id);
+  const allFilteredSelected =
+    filtered.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+  const someFilteredSelected = filteredIds.some((id) => selectedIds.includes(id));
+
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+  }, [someFilteredSelected, allFilteredSelected]);
+
+  const toggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...filteredIds])]);
+    }
+  };
 
   const nbHaute = opps.filter((o) => o.score === "haute").length;
   const nbNonVues = opps.filter((o) => o.vue === 0).length;
@@ -89,12 +173,23 @@ export default function OpportunitesPage() {
             Radar d'événements locaux — Savoie & Rhône-Alpes
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {scrapeMsg && (
             <span className="text-sm font-medium text-primary animate-fade-in">
               {scrapeMsg}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setVoirArchives((v) => !v)}
+            className={`px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+              voirArchives
+                ? "bg-primary text-white border-primary"
+                : "bg-surface text-muted border-border hover:border-gray-300"
+            }`}
+          >
+            {voirArchives ? "← Liste active" : "📦 Archives"}
+          </button>
           <Button onClick={handleScrape} disabled={scraping}>
             {scraping ? (
               <span className="flex items-center gap-2">
@@ -176,19 +271,83 @@ export default function OpportunitesPage() {
             ))}
           </div>
 
+          {filtered.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-muted">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  onChange={toggleSelectAllFiltered}
+                  className="rounded border-border text-primary focus:ring-primary"
+                  aria-label="Tout sélectionner dans la liste filtrée"
+                />
+                <span>Tout sélectionner ({filtered.length})</span>
+              </label>
+            </div>
+          )}
+
+          {selectedIds.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-4 px-4 py-3 rounded-xl border border-primary/20 bg-primary/5">
+              <span className="text-sm font-bold text-text mr-1">
+                {selectedIds.length} sélectionné{selectedIds.length > 1 ? "s" : ""}
+              </span>
+              {!voirArchives && (
+                <button
+                  type="button"
+                  disabled={bulkLoading}
+                  onClick={handleBulkArchiver}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  📦 Archiver
+                </button>
+              )}
+              {voirArchives && (
+                <button
+                  type="button"
+                  disabled={bulkLoading}
+                  onClick={handleBulkRestaurer}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                >
+                  ↩️ Restaurer
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={bulkLoading}
+                onClick={handleBulkSupprimer}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:opacity-90 disabled:opacity-50 transition-colors"
+              >
+                🗑️ Supprimer
+              </button>
+              <button
+                type="button"
+                disabled={bulkLoading}
+                onClick={() => setSelectedIds([])}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted hover:text-text hover:bg-surface transition-colors"
+              >
+                Annuler
+              </button>
+            </div>
+          )}
+
           {/* ── Liste ou état vide ── */}
           {filtered.length === 0 ? (
             <div className="bg-surface rounded-2xl border border-border shadow-sm text-center py-20">
               <p className="text-4xl mb-4">🔭</p>
               <p className="text-text font-semibold text-lg mb-1">
-                Aucune opportunité détectée
+                {voirArchives ? "Aucune opportunité archivée" : "Aucune opportunité détectée"}
               </p>
               <p className="text-muted text-sm mb-6">
-                Lancez le radar pour scanner les événements de votre région
+                {voirArchives
+                  ? "Les opportunités archivées apparaîtront ici"
+                  : "Lancez le radar pour scanner les événements de votre région"}
               </p>
-              <Button onClick={handleScrape} disabled={scraping}>
-                🔍 Lancer le radar maintenant
-              </Button>
+              {!voirArchives && (
+                <Button onClick={handleScrape} disabled={scraping}>
+                  🔍 Lancer le radar maintenant
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -204,7 +363,19 @@ export default function OpportunitesPage() {
                     }`}
                   >
                     {/* Ligne haute */}
-                    <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div
+                        className="pt-0.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(o.id)}
+                          onChange={() => toggleSelectOne(o.id)}
+                          className="rounded border-border text-primary focus:ring-primary"
+                          aria-label={`Sélectionner ${o.titre}`}
+                        />
+                      </div>
                       <div className="flex items-center gap-2.5 flex-1 min-w-0">
                         <span
                           className={`shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full ${src.bg} ${src.text}`}
@@ -212,9 +383,14 @@ export default function OpportunitesPage() {
                           {src.label}
                         </span>
                         <h3 className="font-bold text-text truncate">{o.titre}</h3>
+                        {voirArchives && o.archive === 1 && (
+                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
+                            Archivé
+                          </span>
+                        )}
                       </div>
                       <span
-                        className={`shrink-0 ml-3 text-xs font-bold px-2.5 py-0.5 rounded-full uppercase ${scr.bg} ${scr.text}`}
+                        className={`shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full uppercase ${scr.bg} ${scr.text}`}
                       >
                         {o.score}
                       </span>
@@ -270,6 +446,8 @@ export default function OpportunitesPage() {
           )}
         </>
       )}
+
+      {!loading && <HistoriqueScraping key={histKey} type="opportunites" />}
     </div>
   );
 }

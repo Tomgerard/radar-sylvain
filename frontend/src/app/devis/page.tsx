@@ -95,7 +95,7 @@ export default function DevisPage() {
                           <td className="py-3 text-muted">{d.nom_evenement}</td>
                           <td className="py-3 text-muted">{d.date_evenement}</td>
                           <td className="py-3 text-right font-bold text-text">
-                            {d.prix_ttc.toFixed(0)} €
+                            {d.prix_ttc.toFixed(2)} €
                           </td>
                           <td className="py-3">
                             <Badge variant={d.statut === "envoyé" ? "success" : "default"}>

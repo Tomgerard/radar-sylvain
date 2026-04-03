@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 from models import Devis
 
@@ -9,8 +10,30 @@ MENTIONS_GUSO = """Contrat GUSO intermittent du spectacle. Merci de vous renseig
 
 CLAUSE_ANNULATION = """En cas de maladie, d'accident ou de tout autre empêchement indépendant de la volonté de l'artiste rendant impossible l'exécution de la prestation prévue, la responsabilité de l'artiste ne pourra en aucun cas être engagée."""
 
+def _lignes_pdf(devis: Devis) -> list[dict]:
+    raw = getattr(devis, "lignes_prestations", None)
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list) and parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    return [
+        {"libelle": devis.type_prestation or "Prestation", "prix_ttc": float(devis.prix_ttc or 0)},
+    ]
+
+
 def generer_html_devis(devis: Devis) -> str:
     date_formatee = datetime.now().strftime("%d/%m/%Y")
+    lignes = _lignes_pdf(devis)
+    rows_html = "".join(
+        f'<tr><td style="padding:10px 8px;border-bottom:1px solid #eee">{l.get("libelle", "")}</td>'
+        f'<td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:600">'
+        f'{float(l.get("prix_ttc", 0)):.2f} €</td></tr>'
+        for l in lignes
+    )
+    total = sum(float(l.get("prix_ttc", 0)) for l in lignes)
     return f"""
     <!DOCTYPE html>
     <html lang="fr">
@@ -29,6 +52,9 @@ def generer_html_devis(devis: Devis) -> str:
             .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
             .field label {{ font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }}
             .field p {{ font-size: 14px; color: #1a1a1a; margin-top: 2px; }}
+            .lignes-table {{ width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }}
+            .lignes-table th {{ text-align: left; padding: 8px; border-bottom: 2px solid #8B0000; color: #8B0000; font-size: 11px; text-transform: uppercase; }}
+            .lignes-table th:last-child {{ text-align: right; }}
             .prix {{ font-size: 32px; color: #8B0000; font-weight: bold; text-align: right; margin: 20px 0; }}
             .mention {{ background: #f9f9f9; border-left: 3px solid #8B0000; padding: 12px 16px; font-size: 12px; color: #555; line-height: 1.6; margin-bottom: 16px; }}
             .validite {{ font-size: 13px; color: #555; margin-bottom: 30px; }}
@@ -73,7 +99,15 @@ def generer_html_devis(devis: Devis) -> str:
             <div class="field" style="margin-top:12px"><label>Description</label><p style="margin-top:6px;line-height:1.6">{devis.description}</p></div>
         </div>
 
-        <div class="prix">{devis.prix_ttc:.2f} € TTC</div>
+        <div class="section">
+            <div class="section-title">Détail des prestations</div>
+            <table class="lignes-table">
+                <thead><tr><th>Prestation</th><th style="text-align:right">Montant TTC</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+
+        <div class="prix">Total : {total:.2f} € TTC</div>
 
         <div class="section">
             <div class="section-title">Mentions légales</div>

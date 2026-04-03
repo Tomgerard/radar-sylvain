@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { api, DevisCreate } from "@/lib/api";
+import { api, DevisCreate, LignePrestation } from "@/lib/api";
 import BentoCard from "@/components/ui/BentoCard";
 import Button from "@/components/ui/Button";
 
@@ -28,7 +28,7 @@ const defaultForm: DevisCreate = {
   date_evenement: "",
   duree: "",
   horaires: "À définir",
-  prix_ttc: 0,
+  lignes_prestations: [{ libelle: "", prix_ttc: 0 }],
 };
 
 export default function NouveauDevisPage() {
@@ -41,11 +41,42 @@ export default function NouveauDevisPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const updateLigne = (index: number, patch: Partial<LignePrestation>) => {
     setForm((prev) => ({
       ...prev,
-      [name]: name === "prix_ttc" ? parseFloat(value) || 0 : value,
+      lignes_prestations: prev.lignes_prestations.map((l, i) =>
+        i === index ? { ...l, ...patch } : l
+      ),
     }));
   };
+
+  const addLigne = () => {
+    setForm((prev) => ({
+      ...prev,
+      lignes_prestations: [...prev.lignes_prestations, { libelle: "", prix_ttc: 0 }],
+    }));
+  };
+
+  const removeLigne = (index: number) => {
+    setForm((prev) => {
+      const next = prev.lignes_prestations.filter((_, i) => i !== index);
+      return {
+        ...prev,
+        lignes_prestations: next.length ? next : [{ libelle: "", prix_ttc: 0 }],
+      };
+    });
+  };
+
+  const totalTtc = useMemo(
+    () =>
+      form.lignes_prestations.reduce((s, l) => s + (Number(l.prix_ttc) || 0), 0),
+    [form.lignes_prestations]
+  );
+
+  const lignesValides = form.lignes_prestations.some((l) => l.libelle.trim().length > 0);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -165,16 +196,55 @@ export default function NouveauDevisPage() {
                   className={inputClass}
                 />
               </div>
-              <div>
-                <label className={labelClass}>Prix TTC (€) *</label>
-                <input
-                  type="number"
-                  name="prix_ttc"
-                  value={form.prix_ttc}
-                  onChange={handleChange}
-                  placeholder="500"
-                  className={inputClass}
-                />
+            </div>
+            <div className="mt-6 pt-4 border-t border-border">
+              <div className="flex items-center justify-between mb-3">
+                <label className={labelClass + " mb-0"}>Prestations facturées *</label>
+                <button
+                  type="button"
+                  onClick={addLigne}
+                  className="text-xs font-bold text-primary hover:underline"
+                >
+                  + Ajouter une ligne
+                </button>
+              </div>
+              <p className="text-xs text-muted mb-3">
+                Une ligne par partie de prestation, avec le montant TTC à droite. Le total est calculé automatiquement.
+              </p>
+              <div className="space-y-2">
+                {form.lignes_prestations.map((ligne, idx) => (
+                  <div key={idx} className="flex gap-2 items-start">
+                    <input
+                      value={ligne.libelle}
+                      onChange={(e) => updateLigne(idx, { libelle: e.target.value })}
+                      placeholder="Ex. Animation magie — 1h30"
+                      className={`${inputClass} flex-1 min-w-0`}
+                    />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={ligne.prix_ttc === 0 ? "" : ligne.prix_ttc}
+                        onChange={(e) =>
+                          updateLigne(idx, { prix_ttc: parseFloat(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className={`${inputClass} w-28 text-right`}
+                      />
+                      <span className="text-sm text-muted w-6">€</span>
+                      <button
+                        type="button"
+                        onClick={() => removeLigne(idx)}
+                        disabled={form.lignes_prestations.length <= 1}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-30 transition-colors"
+                        title="Supprimer la ligne"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="mt-4">
@@ -199,9 +269,9 @@ export default function NouveauDevisPage() {
                 {/* Prix */}
                 <div className="text-center py-4 bg-background rounded-xl">
                   <p className="text-4xl font-extrabold text-primary">
-                    {form.prix_ttc.toFixed(0)} €
+                    {totalTtc.toFixed(2)} €
                   </p>
-                  <p className="text-muted text-xs mt-1">TTC</p>
+                  <p className="text-muted text-xs mt-1">Total TTC</p>
                 </div>
 
                 {/* Infos */}
@@ -245,7 +315,7 @@ export default function NouveauDevisPage() {
                 <div className="pt-2 space-y-2.5">
                   <Button
                     onClick={handleSubmit}
-                    disabled={loading || !form.nom_client || !form.prix_ttc}
+                    disabled={loading || !form.nom_client || !lignesValides}
                     className="w-full"
                     size="lg"
                   >

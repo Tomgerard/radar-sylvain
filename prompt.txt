@@ -1,0 +1,288 @@
+Dans ~/radar-sylvain, transforme complètement le module Prospects 
+en un CRM automatisé et enrichi.
+
+L'objectif : Sylvain lance le scrape, chaque prospect est 
+automatiquement enrichi (site web, email, responsable), 
+et il peut générer un email personnalisé en 1 clic.
+
+═══════════════════════════════════════
+ÉTAPE 1 — ENRICHISSEMENT AUTOMATIQUE
+═══════════════════════════════════════
+Dans backend/services/prospect_enricher.py (nouveau fichier) :
+
+Fonction principale :
+async def enrichir_prospect(prospect: dict) -> dict
+
+Elle fait 3 choses dans l'ordre :
+
+--- 1A. Trouver le site web ---
+Si pas de site_web, chercher sur Google :
+URL : https://www.google.fr/search?q=
+      {nom}+{ville}+site+officiel&num=3&hl=fr
+
+Parser avec BeautifulSoup, prendre le premier 
+lien qui n'est pas google.com, facebook.com, 
+pagesjaunes.fr, wikipedia.org
+
+--- 1B. Scraper le site web ---
+Si site_web trouvé ou déjà connu :
+  
+  1. Chercher la page contact :
+     Essayer ces URLs dans l'ordre :
+     - site_web + "/contact"
+     - site_web + "/nous-contacter"  
+     - site_web + "/contactez-nous"
+     - site_web + "/a-propos"
+     - site_web + "/equipe"
+     - site_web (page d'accueil)
+  
+  2. Sur chaque page trouvée, extraire :
+     
+     EMAIL :
+     - href="mailto:..." → extraire l'adresse
+     - Regex sur tout le texte : 
+       [a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}
+     - Ignorer : noreply, no-reply, donotreply, 
+       exemple@, test@, info@wordpress
+     - Prendre le premier email valide trouvé
+     
+     TÉLÉPHONE :
+     - href="tel:..." → extraire le numéro
+     - Regex : 0[1-9][\s.-]?([0-9]{2}[\s.-]?){4}
+     - Normaliser au format 06 23 26 13 59
+     
+     NOM DU RESPONSABLE :
+     Chercher dans le HTML des patterns comme :
+     - "Directeur", "Président", "Responsable", 
+       "Gérant", "Contact", "Notre équipe"
+     - Balises : h2, h3, p, span, div proches 
+       de ces mots clés
+     - Extraire prénom + nom si trouvé
+     
+     DESCRIPTION :
+     - Meta description de la page
+     - Ou premier paragraphe <p> de plus de 50 chars
+
+--- 1C. Enrichissement via Claude ---
+Si on a trouvé le site web, envoyer à Claude :
+"Voici le contenu HTML de la page contact de {nom} 
+situé à {ville} ({type_structure}).
+
+{contenu_html[:3000]}
+
+Extrais en JSON :
+{
+  'email': 'email trouvé ou null',
+  'telephone': 'tel trouvé ou null', 
+  'responsable_prenom': 'prénom ou null',
+  'responsable_nom': 'nom ou null',
+  'responsable_titre': 'titre/poste ou null',
+  'description': 'description de la structure en 1 phrase'
+}
+Réponds UNIQUEMENT en JSON."
+
+Mettre à jour le prospect avec toutes les infos trouvées.
+Retourner le prospect enrichi.
+
+═══════════════════════════════════════
+ÉTAPE 2 — MISE À JOUR MODÈLE BDD
+═══════════════════════════════════════
+Dans backend/models.py, enrichis le modèle Prospect :
+
+Ajouter ces colonnes :
+- responsable_prenom = Column(String)
+- responsable_nom = Column(String)  
+- responsable_titre = Column(String)
+- description_structure = Column(Text)
+- site_web_scrape = Column(Integer, default=0) 
+  # 0=non scrappé, 1=scrappé
+- email_trouve = Column(Integer, default=0)
+  # 0=non trouvé, 1=trouvé
+- enrichissement_date = Column(DateTime)
+- score_prospection = Column(Integer, default=0)
+  # score 0-100 calculé par Claude
+
+═══════════════════════════════════════
+ÉTAPE 3 — SCORE DE PROSPECTION
+═══════════════════════════════════════
+Dans backend/services/claude_service.py,
+ajoute une fonction scorer_prospect :
+
+async def scorer_prospect(prospect: dict) -> int:
+  
+  prompt = """
+  Tu es l'assistant commercial de Sylvain Gérard, 
+  artiste de spectacle en Savoie.
+  
+  Évalue ce prospect sur 100 pour Sylvain :
+  - Nom : {nom}
+  - Type : {type_structure}
+  - Ville : {ville}
+  - Email disponible : {email_trouve}
+  - Responsable connu : {responsable_connu}
+  
+  Critères de scoring :
+  + 30 pts si email disponible
+  + 20 pts si responsable identifié
+  + 20 pts si CE/CSE (budget animation important)
+  + 15 pts si mairie (fêtes village, Noël)
+  + 15 pts si hôtel/camping/station ski
+  + 10 pts si Savoie (73) ou Haute-Savoie (74)
+  + 5 pts si Ain/Isère/Suisse
+  
+  Réponds UNIQUEMENT avec un nombre entre 0 et 100.
+  """
+  
+  Retourner le score (int)
+
+═══════════════════════════════════════
+ÉTAPE 4 — ROUTER PROSPECTS ENRICHI
+═══════════════════════════════════════
+Dans backend/routers/prospects.py :
+
+POST /prospects/scraper/lancer :
+  1. Lance scraper_prospects (existant)
+  2. Pour chaque nouveau prospect :
+     - Lance enrichir_prospect()
+     - Lance scorer_prospect()
+     - Met à jour en BDD
+  3. Retourne stats :
+     {
+       "total": X,
+       "nouveaux": X, 
+       "emails_trouves": X,
+       "responsables_trouves": X
+     }
+
+GET /prospects/ — ajouter tri par score_prospection DESC
+
+POST /prospects/{id}/enrichir :
+  Relance l'enrichissement sur un prospect spécifique
+  Utile si le premier enrichissement a échoué
+
+POST /prospects/{id}/generer-email :
+  Améliore le prompt Claude avec les nouvelles infos :
+  
+  "Tu es Sylvain Gérard, artiste de spectacle
+  (magie, ventriloquie, ballons, piano) Savoie, 
+  35 ans d'expérience.
+  
+  Rédige un email de prospection pour :
+  - Structure : {nom} ({type_structure})
+  - Ville : {ville}
+  - Responsable : {responsable_prenom} {responsable_nom}
+    ({responsable_titre})
+  - Description : {description_structure}
+  
+  L'email doit :
+  - Commencer par 'Objet: ...' (objet accrocheur)
+  - Adresser au responsable par son prénom si connu,
+    sinon formule de politesse adaptée au type
+  - Corps de 120 mots maximum
+  - Proposer LA prestation la plus adaptée :
+    CE → soirée magique ou animation Noël
+    Mairie → fête village ou animation estivale
+    École → spectacle enfants magie/ballons
+    Hôtel/Restaurant → soirée cabaret
+    Camping → animation famille
+    Station ski → animation hivernale
+  - Mentionner la proximité géographique (Savoie)
+  - CTA clair : 'Appelez-moi au 06 23 26 13 59'
+  - Signature : Sylvain Gérard / sylvaingerard.com
+  
+  Ton : chaleureux, professionnel, jamais insistant.
+  Réponds UNIQUEMENT avec l'email complet."
+
+═══════════════════════════════════════
+ÉTAPE 5 — FRONTEND CRM COMPLET
+═══════════════════════════════════════
+Refais complètement frontend/src/app/prospects/page.tsx
+
+HEADER :
+- Titre "CRM Prospects"
+- Stats inline : X prospects | X emails | X à contacter
+- Bouton "🔍 Scanner & Enrichir" (rouge, rounded-full)
+  → Affiche une progress bar pendant le scraping
+  → Message en temps réel : 
+    "Scraping..." → "Enrichissement..." → "Scoring..." → "Terminé !"
+
+STATS BENTO (4 cards) :
+- Score moyen (sur 100)
+- Emails trouvés (nombre + %)
+- Responsables identifiés (nombre + %)  
+- À contacter en priorité (score > 70)
+
+FILTRES + TRI :
+- Filtres type : Tous | CE/CSE | Mairies | Hôtels | etc.
+- Filtres statut : Tous | À contacter | Contacté | Intéressé
+- Tri : Par score ↓ | Par date | Par ville | Par type
+- Barre de recherche (filtre par nom ou ville)
+
+TABLE CRM (style base de données propre) :
+Utilise un vrai tableau HTML avec ces colonnes :
+
+| Score | Nom | Type | Ville | Responsable | Email | Tél | Statut | Actions |
+
+- Score : badge coloré (vert >70, orange 40-70, gris <40)
+- Nom : bold, cliquable → ouvre le panneau détail
+- Type : badge coloré selon type_structure
+- Ville : texte simple
+- Responsable : "Prénom Nom" ou "—" si inconnu
+- Email : icône ✉️ cliquable (mailto:) ou "—"
+- Tél : icône 📞 cliquable (tel:) ou "—"
+- Statut : dropdown inline pour changer rapidement
+- Actions : 3 icônes — ✉️ Générer email | 🔄 Ré-enrichir | 🗑️ Supprimer
+
+PANNEAU DÉTAIL (slide-in depuis la droite) :
+Quand on clique sur un prospect :
+
+  Section "Identité" :
+  - Nom complet + badge type
+  - Description de la structure
+  - Score de prospection (barre de progression colorée)
+  
+  Section "Contact" :
+  - Responsable : prénom, nom, titre
+  - Email (cliquable)
+  - Téléphone (cliquable)
+  - Site web (lien externe)
+  - Adresse complète
+  
+  Section "Email de prospection" :
+  - Si email_envoye existe : afficher l'email
+  - Sinon : bouton "✨ Générer avec Claude"
+  - Zone de texte éditable
+  - Bouton "📋 Copier"
+  - Bouton "✉️ Ouvrir dans Mail" 
+    (ouvre mailto:{email}?subject=...&body=...)
+  
+  Section "Historique" :
+  - Date d'ajout
+  - Date d'enrichissement
+  - Statut actuel + boutons pour changer
+  - Zone notes libre (textarea sauvegardé auto)
+
+═══════════════════════════════════════
+ÉTAPE 6 — EXPORT CSV
+═══════════════════════════════════════
+Dans backend/routers/prospects.py :
+
+GET /prospects/export/csv :
+  Génère un fichier CSV avec toutes les colonnes
+  Retourne FileResponse avec le CSV
+  
+Dans frontend, ajoute bouton "⬇️ Exporter CSV" 
+dans le header de la page prospects.
+
+═══════════════════════════════════════
+RÈGLES ABSOLUES
+═══════════════════════════════════════
+- Même charte graphique (navy, rouge, bento, Nunito)
+- Enrichissement avec délai 1s entre chaque prospect
+  pour éviter d'être bloqué
+- Sauvegarder au fur et à mesure (pas tout à la fin)
+- Si enrichissement échoue → garder le prospect 
+  sans enrichissement plutôt que perdre la donnée
+- Déduplication par nom+ville
+- Maximum 50 prospects enrichis par session
+  pour économiser les crédits Claude

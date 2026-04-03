@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { api, Devis, DevisCreate } from "@/lib/api";
+import { api, Devis, DevisCreate, LignePrestation } from "@/lib/api";
 import BentoCard from "@/components/ui/BentoCard";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -47,7 +47,10 @@ export default function DevisDetailPage() {
         date_evenement: d.date_evenement,
         duree: d.duree,
         horaires: d.horaires,
-        prix_ttc: d.prix_ttc,
+        lignes_prestations:
+          d.lignes_prestations?.length
+            ? d.lignes_prestations.map((l) => ({ ...l }))
+            : [{ libelle: d.type_prestation || "Prestation", prix_ttc: d.prix_ttc }],
       });
       setLoading(false);
     }).catch(() => {
@@ -61,11 +64,42 @@ export default function DevisDetailPage() {
   ) => {
     if (!form) return;
     const { name, value } = e.target;
+    setForm((prev) => ({ ...prev!, [name]: value }));
+  };
+
+  const updateLigne = (index: number, patch: Partial<LignePrestation>) => {
+    if (!form) return;
     setForm((prev) => ({
       ...prev!,
-      [name]: name === "prix_ttc" ? parseFloat(value) || 0 : value,
+      lignes_prestations: prev!.lignes_prestations.map((l, i) =>
+        i === index ? { ...l, ...patch } : l
+      ),
     }));
   };
+
+  const addLigne = () => {
+    if (!form) return;
+    setForm((prev) => ({
+      ...prev!,
+      lignes_prestations: [...prev!.lignes_prestations, { libelle: "", prix_ttc: 0 }],
+    }));
+  };
+
+  const removeLigne = (index: number) => {
+    if (!form) return;
+    setForm((prev) => {
+      const next = prev!.lignes_prestations.filter((_, i) => i !== index);
+      return {
+        ...prev!,
+        lignes_prestations: next.length ? next : [{ libelle: "", prix_ttc: 0 }],
+      };
+    });
+  };
+
+  const totalTtcForm = useMemo(() => {
+    if (!form) return 0;
+    return form.lignes_prestations.reduce((s, l) => s + (Number(l.prix_ttc) || 0), 0);
+  }, [form]);
 
   const handleSave = async () => {
     if (!form) return;
@@ -74,6 +108,17 @@ export default function DevisDetailPage() {
     try {
       const updated = await api.updateDevis(id, form);
       setDevis(updated);
+      setForm({
+        nom_client: updated.nom_client,
+        adresse_client: updated.adresse_client,
+        type_prestation: updated.type_prestation,
+        description: updated.description,
+        nom_evenement: updated.nom_evenement,
+        date_evenement: updated.date_evenement,
+        duree: updated.duree,
+        horaires: updated.horaires,
+        lignes_prestations: updated.lignes_prestations.map((l) => ({ ...l })),
+      });
       setMessage("Devis mis à jour !");
       setTimeout(() => setMessage(""), 3000);
     } catch {
@@ -195,9 +240,51 @@ export default function DevisDetailPage() {
                 <label className={labelClass}>Horaires</label>
                 <input name="horaires" value={form.horaires} onChange={handleChange} className={inputClass} />
               </div>
-              <div>
-                <label className={labelClass}>Prix TTC (€)</label>
-                <input type="number" name="prix_ttc" value={form.prix_ttc} onChange={handleChange} className={inputClass} />
+            </div>
+            <div className="mt-6 pt-4 border-t border-border">
+              <div className="flex items-center justify-between mb-3">
+                <label className={labelClass + " mb-0"}>Prestations facturées</label>
+                <button
+                  type="button"
+                  onClick={addLigne}
+                  className="text-xs font-bold text-primary hover:underline"
+                >
+                  + Ajouter une ligne
+                </button>
+              </div>
+              <div className="space-y-2">
+                {form.lignes_prestations.map((ligne, idx) => (
+                  <div key={idx} className="flex gap-2 items-start">
+                    <input
+                      value={ligne.libelle}
+                      onChange={(e) => updateLigne(idx, { libelle: e.target.value })}
+                      placeholder="Libellé de la prestation"
+                      className={`${inputClass} flex-1 min-w-0`}
+                    />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={ligne.prix_ttc === 0 ? "" : ligne.prix_ttc}
+                        onChange={(e) =>
+                          updateLigne(idx, { prix_ttc: parseFloat(e.target.value) || 0 })
+                        }
+                        className={`${inputClass} w-28 text-right`}
+                      />
+                      <span className="text-sm text-muted w-6">€</span>
+                      <button
+                        type="button"
+                        onClick={() => removeLigne(idx)}
+                        disabled={form.lignes_prestations.length <= 1}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-30 transition-colors"
+                        title="Supprimer la ligne"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="mt-4">
@@ -214,9 +301,9 @@ export default function DevisDetailPage() {
               <div className="space-y-5">
                 <div className="text-center py-4 bg-background rounded-xl">
                   <p className="text-4xl font-extrabold text-primary">
-                    {form.prix_ttc.toFixed(0)} €
+                    {totalTtcForm.toFixed(2)} €
                   </p>
-                  <p className="text-muted text-xs mt-1">TTC</p>
+                  <p className="text-muted text-xs mt-1">Total TTC</p>
                 </div>
 
                 <div className="space-y-3 text-sm">
